@@ -219,13 +219,6 @@ async def unban(interaction: discord.Interaction, user_id: str):
     await interaction.guild.unban(user)
     await interaction.response.send_message(f"🔓 Utilizador com ID {user_id} foi desbanido.")
 
-# 7. INFORMAÇÕES DO SERVIDOR
-@bot.tree.command(name="servidor", description="Ver informações do servidor")
-@app_commands.checks.has_permissions(manage_guild=True)
-async def servidor(interaction: discord.Interaction):
-    info = f"Nome: {interaction.guild.name}\nMembros: {interaction.guild.member_count}\nDono: {interaction.guild.owner}"
-    await interaction.response.send_message(f"ℹ️ Informações:\n{info}")
-
 @bot.tree.command(name="anunciar", description="Faz um anúncio oficial com foto e menção")
 @app_commands.checks.has_permissions(administrator=True)
 async def anunciar(interaction: discord.Interaction, 
