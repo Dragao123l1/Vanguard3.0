@@ -1,4 +1,4 @@
 discord.py
-pymongo[srv]>=4.0.0
-dnspython
 flask
+supabase
+requests
