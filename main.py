@@ -1,279 +1,498 @@
 import os
-import discord
+import io
 import random
-from discord import app_commands
-from discord.ext import commands
+import asyncio
+import urllib.parse
+import requests
+import discord
+
+from datetime import timedelta
 from flask import Flask
 from threading import Thread
-from pymongo import MongoClient
 
-# --- INFRAESTRUTURA ---
-app = Flask('')
-@app.route('/')
-def home(): return "Vanguard Operante!"
-Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
+from discord.ext import commands
+from discord import app_commands
 
-# --- CONFIGURAÇÃO ---
-mongo_uri = os.environ.get("MONGO_URI")
+from supabase import create_client, Client
+
+# ======================================================
+# FLASK
+# ======================================================
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Arcad operante!"
+
+Thread(
+    target=lambda: app.run(
+        host="0.0.0.0",
+        port=10000
+    ),
+    daemon=True
+).start()
+
+# ======================================================
+# BOT
+# ======================================================
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-# A CRIAÇÃO DO BOT DEVE FICAR AQUI, ANTES DOS COMANDOS
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
 
-# Lista de palavras para os jogos (faltava isto!)
-PALAVRAS = ["python", "discord", "servidor", "mongodb", "programacao"]
+# ======================================================
+# SUPABASE
+# ======================================================
 
-# Agora sim, a conexão com MongoDB
-mongo_uri = os.environ.get("MONGO_URI")
-client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-db = client["vanguard"]
-usuarios = db["usuarios"]
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-try:
-    client.server_info()
-    print("Conexão com MongoDB estabelecida com sucesso!")
-except Exception as e:
-    print(f"ERRO DE CONEXÃO MONGODB: {e}")
+if not SUPABASE_URL:
+    raise Exception("SUPABASE_URL não encontrada.")
 
-# --- FUNÇÕES DE DADOS ---
-def get_user(uid):
-    user = usuarios.find_one({"user_id": str(uid)})
-    if not user:
-        user = {"user_id": str(uid), "xp": 0, "coins": 100}
-        usuarios.insert_one(user)
-    return user
+if not SUPABASE_KEY:
+    raise Exception("SUPABASE_KEY não encontrada.")
 
-def update_user(uid, xp_inc, coin_inc):
-    usuarios.update_one({"user_id": str(uid)}, {"$inc": {"xp": xp_inc, "coins": coin_inc}}, upsert=True)
+supabase: Client = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY
+)
 
-# --- COMANDOS ---
-@bot.tree.command(name="ajuda", description="Exibe o painel de comandos do bot")
-async def ajuda(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🤖 Central de Ajuda - Vanguard",
-        description="Confira abaixo a lista de todos os comandos disponíveis:",
-        color=discord.Color.blue()
+# ======================================================
+# SISTEMA XP
+# ======================================================
+
+def adicionar_xp(user_id: int, quantidade: int):
+
+    resultado = (
+        supabase.table("usuarios")
+        .select("*")
+        .eq("user_id", str(user_id))
+        .execute()
     )
-    
-    # Jogos
-    embed.add_field(
-        name="🎮 Jogos & Diversão", 
-        value=(
-            "**/anagrama** - Desembaralhe a palavra\n"
-            "**/forca** - Tente adivinhar a palavra\n"
-            "**/ppt** - Duelo de Pedra, Papel e Tesoura"
-        ), 
-        inline=False
-    )
-    
-    # Economia
-    embed.add_field(
-        name="💰 Economia & Perfil", 
-        value=(
-            "**/perfil** - Veja seu saldo, XP e nível\n"
-            "**/daily** - Resgate suas moedas diárias\n"
-            "**/apostar** - Tente a sorte com suas moedas"
-        ), 
-        inline=False
-    )
-    
-    # Utilidades
-    embed.add_field(
-        name="🛠️ Utilidades", 
-        value=(
-            "**/ping** - Latência do bot\n"
-            "**/servidor** - Info do servidor\n"
-            "**/ajuda** - Exibe este menu"
-        ), 
-        inline=False
-    )
-    
-    # Staff
-    embed.add_field(
-        name="🛡️ Staff (Moderadores)", 
-        value=(
-            "**/ban** - Bane um membro\n"
-            "**/unban** - Remove banimento\n"
-            "**/kick** - Expulsa um membro\n"
-            "**/mute** - Silencia um membro\n"
-            "**/unmute** - Remove silenciamento\n"
-            "**/limpar** - Apaga mensagens\n"
-            "**/warn** - Avisa um membro\n"
-            "**/anunciar** - Faz um anúncio"
-        ), 
-        inline=False
-    )
-    
-    embed.set_footer(text="Vanguard Bot | Mantenha a ordem e divirta-se!")
-    embed.set_thumbnail(url=bot.user.avatar.url if bot.user.avatar else "")
-    
-    await interaction.response.send_message(embed=embed)
 
+    if resultado.data:
 
-@bot.tree.command(name="anagrama", description="Desafio de anagrama")
-async def anagrama(interaction: discord.Interaction):
-    p = random.choice(PALAVRAS)
-    l = list(p); random.shuffle(l)
-    await interaction.response.send_message(f"🔤 Desembaralhe: `{ ''.join(l) }`")
+        xp_atual = resultado.data[0]["xp"]
 
-@bot.tree.command(name="forca", description="Jogo da forca")
-async def forca(interaction: discord.Interaction):
-    p = random.choice(PALAVRAS)
-    await interaction.response.send_message(f"🔨 Forca: `{' _ ' * len(p)}`")
+        (
+            supabase.table("usuarios")
+            .update({
+                "xp": xp_atual + quantidade
+            })
+            .eq("user_id", str(user_id))
+            .execute()
+        )
 
-@bot.tree.command(name="perfil", description="Veja seu XP, Nível e Dinheiro")
-async def perfil(interaction: discord.Interaction):
-    user = get_user(interaction.user.id)
-    xp = user.get("xp", 0)
-    coins = user.get("coins", 0)
-    level = xp // 100
-    await interaction.response.send_message(f"👤 **{interaction.user.name}**\n⭐ Nível: {level} ({xp} XP)\n💰 Moedas: {coins}")
-
-@bot.tree.command(name="daily", description="Resgate suas moedas diárias")
-async def daily(interaction: discord.Interaction):
-    update_user(interaction.user.id, 10, 100)
-    await interaction.response.send_message("💰 Resgataste 100 moedas e 10 XP!")
-
-@bot.tree.command(name="apostar", description="Aposte moedas")
-async def apostar(interaction: discord.Interaction, valor: int, palpite: int):
-    user = get_user(interaction.user.id)
-    if user["coins"] < valor: return await interaction.response.send_message("❌ Saldo insuficiente.")
-    
-    num = random.randint(1, 10)
-    if palpite == num:
-        update_user(interaction.user.id, 20, valor)
-        await interaction.response.send_message(f"🎉 Ganhaste! O número era {num}. (+20 XP)")
     else:
-        update_user(interaction.user.id, 0, -valor)
-        await interaction.response.send_message(f"❌ Perdeste! O número era {num}.")
 
-@bot.tree.command(name="ppt", description="Duelo PPT")
-async def ppt(interaction: discord.Interaction):
-    class PPTView(discord.ui.View):
-        @discord.ui.button(label="Pedra", style=discord.ButtonStyle.secondary)
-        async def pedra(self, i, b):
-            update_user(i.user.id, 20, 0)
-            await i.response.send_message("Escolheste Pedra! (+20 XP)")
-    await interaction.response.send_message("Escolhe:", view=PPTView())
+        (
+            supabase.table("usuarios")
+            .insert({
+                "user_id": str(user_id),
+                "xp": quantidade
+            })
+            .execute()
+        )
 
-@bot.tree.command(name="ping", description="Verifica a latência do bot e a resposta do sistema")
-async def ping(interaction: discord.Interaction):
-    # Calcula a latência em milissegundos
-    latencia = round(bot.latency * 1000)
-    
-    embed = discord.Embed(
-        title="🏓 Pong!",
-        description=f"A minha latência atual é de **{latencia}ms**.",
-        color=discord.Color.green()
+
+def obter_xp(user_id: int):
+
+    resultado = (
+        supabase.table("usuarios")
+        .select("xp")
+        .eq("user_id", str(user_id))
+        .execute()
     )
-    await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="servidor", description="Exibe informações detalhadas sobre o servidor")
-async def servidor(interaction: discord.Interaction):
-    guild = interaction.guild
-    
-    embed = discord.Embed(
-        title=f"Informações de {guild.name}",
-        color=discord.Color.blue()
+    if resultado.data:
+        return resultado.data[0]["xp"]
+
+    return 0
+
+
+def definir_xp(user_id: int, xp: int):
+
+    resultado = (
+        supabase.table("usuarios")
+        .select("*")
+        .eq("user_id", str(user_id))
+        .execute()
     )
-    
-    if guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
-        
-    embed.add_field(name="👑 Dono", value=guild.owner, inline=True)
-    embed.add_field(name="👥 Membros", value=guild.member_count, inline=True)
-    embed.add_field(name="📅 Criado em", value=guild.created_at.strftime("%d/%m/%Y"), inline=True)
-    embed.add_field(name="🆔 ID do Servidor", value=guild.id, inline=True)
-    
-    await interaction.response.send_message(embed=embed)
 
-# 1. BANIR UM UTILIZADOR
-@bot.tree.command(name="ban", description="Bane um membro do servidor")
-@app_commands.checks.has_permissions(ban_members=True)
-async def ban(interaction: discord.Interaction, membro: discord.Member, motivo: str = "Não especificado"):
-    await membro.ban(reason=motivo)
-    await interaction.response.send_message(f"🔨 {membro.name} foi banido. Motivo: {motivo}")
+    if resultado.data:
 
-# 2. EXPULSAR UM UTILIZADOR
-@bot.tree.command(name="kick", description="Expulsa um membro do servidor")
-@app_commands.checks.has_permissions(kick_members=True)
-async def kick(interaction: discord.Interaction, membro: discord.Member, motivo: str = "Não especificado"):
-    await membro.kick(reason=motivo)
-    await interaction.response.send_message(f"👢 {membro.name} foi expulso. Motivo: {motivo}")
+        (
+            supabase.table("usuarios")
+            .update({
+                "xp": xp
+            })
+            .eq("user_id", str(user_id))
+            .execute()
+        )
 
-# 3. LIMPAR O CHAT (PURGE)
-@bot.tree.command(name="limpar", description="Apaga um número de mensagens")
-@app_commands.checks.has_permissions(manage_messages=True)
-async def limpar(interaction: discord.Interaction, quantidade: int):
-    if quantidade > 100: quantidade = 100
-    deleted = await interaction.channel.purge(limit=quantidade)
-    await interaction.response.send_message(f"🧹 {len(deleted)} mensagens apagadas!", ephemeral=True)
+    else:
 
-# 4. SILENCIAR (MUTE) POR TEMPO
-@bot.tree.command(name="mute", description="Silencia um membro")
-@app_commands.checks.has_permissions(moderate_members=True)
-async def mute(interaction: discord.Interaction, membro: discord.Member):
-    # Nota: Requer cargo de 'Muted' configurado no servidor
-    await membro.edit(timed_out_until=discord.utils.utcnow() + discord.timedelta(minutes=10))
-    await interaction.response.send_message(f"🤐 {membro.name} foi silenciado por 10 minutos.")
+        (
+            supabase.table("usuarios")
+            .insert({
+                "user_id": str(user_id),
+                "xp": xp
+            })
+            .execute()
+        )
 
-# 5. AVISAR (WARN) - (Salvo no Mongo)
-@bot.tree.command(name="warn", description="Avisa um membro")
-@app_commands.checks.has_permissions(manage_messages=True)
-async def warn(interaction: discord.Interaction, membro: discord.Member, aviso: str):
-    usuarios.update_one({"user_id": str(membro.id)}, {"$push": {"avisos": aviso}}, upsert=True)
-    await interaction.response.send_message(f"⚠️ {membro.name} recebeu um aviso: {aviso}")
 
-# 6. DESBANIR
-@bot.tree.command(name="unban", description="Remove o banimento de um utilizador")
-@app_commands.checks.has_permissions(ban_members=True)
-async def unban(interaction: discord.Interaction, user_id: str):
-    user = discord.Object(id=int(user_id))
-    await interaction.guild.unban(user)
-    await interaction.response.send_message(f"🔓 Utilizador com ID {user_id} foi desbanido.")
+def obter_rank_global():
 
-@bot.tree.command(name="anunciar", description="Faz um anúncio oficial com foto e menção")
-@app_commands.checks.has_permissions(administrator=True)
-async def anunciar(interaction: discord.Interaction, 
-                   titulo: str, 
-                   mensagem: str, 
-                   imagem_url: str = None, 
-                   mencionar_todos: bool = False, 
-                   canal: discord.TextChannel = None):
-    
-    canal_alvo = canal or interaction.channel
-    
-    # Prepara o texto da menção caso o usuário escolha True
-    texto_mencao = "@everyone" if mencionar_todos else ""
-    
-    embed = discord.Embed(
-        title=f"📢 {titulo}",
-        description=mensagem,
-        color=discord.Color.blue()
+    resultado = (
+        supabase.table("usuarios")
+        .select("*")
+        .order(
+            "xp",
+            desc=True
+        )
+        .limit(10)
+        .execute()
     )
-    
-    if imagem_url:
-        embed.set_image(url=imagem_url)
-        
-    embed.set_footer(text=f"Anunciado por: {interaction.user.name}")
-    
-    # Envia a menção junto com o Embed
-    await canal_alvo.send(content=texto_mencao, embed=embed)
-    await interaction.response.send_message(f"✅ Anúncio enviado para {canal_alvo.mention}!", ephemeral=True)
 
-@bot.tree.command(name="unmute", description="Remove o silenciamento de um membro")
-@app_commands.checks.has_permissions(moderate_members=True)
-async def unmute(interaction: discord.Interaction, membro: discord.Member):
-    # Definir o timeout como None remove o silenciamento
-    await membro.edit(timed_out_until=None)
-    
-    await interaction.response.send_message(f"✅ {membro.name} foi desmutado com sucesso.")
+    return resultado.data
+
+
+# ======================================================
+# VARIÁVEIS GLOBAIS
+# ======================================================
+
+jogos_ativos = {}
+
+anagramas_ativos = {}
+
+forca_ativos = {}
+
+ppt_duelos = {}
+
+PALAVRAS_ANAGRAMA = [
+    "computador", "discord", "inteligencia", "teclado", "celular", "planeta", "biologia", "geografia", "bot", 
+    "internet", "games", "controle", "suporte", "servidor", "developer", "cafe", "algoritmo", "database", "tecnologia", 
+    "hardware", "software", "monitor", "mouse", "navegador", "criptografia", "seguranca", "nuvem", "astronomia", "galaxia", 
+    "universo", "fisica", "quimica", "matematica", "historia", "literatura", "filosofia", "psicologia", "musica", "cinema", 
+    "fotografia", "pintura", "escultura", "arquitetura", "engenharia", "medicina", "economia", "politica", "idioma", "viagem",
+    "foguete", "bateria", "televisao", "lampada", "caminho", "mochila", "floresta", "oceano", "montanha", "deserto",
+    "inverno", "verao", "outono", "primavera", "festival", "cidade", "paisagem", "bicicleta", "aventura", "desafio",
+    "misterio", "fantasia", "codigo", "cripto", "memoria", "processo", "sistema", "rede", "grafico", "estudo",
+    "desenho", "esporte", "corrida", "futebol", "basquete", "natacao", "viola", "piano", "teatro", "danca"
+]
+
+LISTA_CANTADAS = [
+    "Você não é Google, mas tem tudo o que eu procuro.", "Você é o queijo do meu hambúrguer.", "Você é a página que faltava no meu livro.", 
+    "Se beleza fosse tempo, você seria uma eternidade.", "Gata, você não é Wi-Fi, mas sinto uma conexão.", "Você é o café que eu precisava hoje.", 
+    "Onde é que eu clico para te ter no meu coração?", "Você não é mapa, mas estou perdido em você.", "Seu sorriso é a minha dose diária de alegria.", 
+    "Você é a tradução da felicidade.", "Meu coração disparou quando te vi.", "Você é uma obra-prima.", "Você merece o mundo.", 
+    "Sua presença ilumina qualquer ambiente.", "Beijar você deve ser como ver o sol nascer.", "Você é o motivo da minha insônia.", 
+    "Gata, você é um erro 404?", "Seus olhos são como o mar.", "Você é a melodia que não sai da cabeça.", "Você é o doce que falta na minha vida.", 
+    "Tem um espelho no seu bolso?", "Se você fosse um filme, seria o favorito.", "Você é a estrela do meu céu.", "Gata, você é açúcar?", 
+    "Você é o presente que a vida me deu.", "Não sou fotógrafo, mas te imagino comigo.", "Você é mais bonita que o pôr do sol.", 
+    "Seu abraço é o meu lugar favorito.", "Você é a peça que faltava no meu quebra-cabeça.", "Você é tão linda que deveria vir com aviso de perigo.", 
+    "Você é a calma no meio da tempestade.", "Seu riso é o meu som preferido.", "Você é o que me faz querer ser melhor.", 
+    "Gata, você é o Wi-Fi?", "Você é a letra da minha música favorita.", "Você é o sol que brilha no meu dia.", "Seu carinho é a melhor coisa.", 
+    "Você é o sonho que se tornou realidade.", "Gata, você tem um mapa?", "Você é a perfeição em forma de gente.", 
+    "Seus olhos brilham mais que estrelas.", "Você é o tesouro que eu sempre quis.", "Você é o brilho nos meus dias cinzentos.", 
+    "Nossa conexão é perfeita.", "Você é incrível.", "Você é o motivo do meu sorriso matinal.", "Seus abraços são como abraçar uma nuvem.", 
+    "Você é a cor do meu arco-íris.", "Você é a paz.", "Você é a luz do meu caminho.", "Seu beijo é o meu paraíso.", 
+    "Você é o sol no meu inverno.", "Sua presença me dá choque.", "Você é a música que acalma minha alma.", 
+    "Você é o meu destino final.", "Você é a beleza que o mundo esqueceu de ver.", "Seu olhar diz tudo.", "Você é o meu abrigo seguro.", 
+    "Não consigo parar de te ler.", "Você é o ar que me falta.", "Se o beijo fosse palavra, o nosso seria um poema.", 
+    "Você não é vidente, mas já previ nosso futuro.", "Sua beleza causa desvio de atenção.", "Você é o capítulo mais feliz da minha vida.", 
+    "Não sou astrônomo, mas vi um planeta no seu olhar.", "Seu abraço cura qualquer tristeza.", "Você é a nota perfeita da minha vida.", 
+    "Você é a sorte que eu pedi a Deus.", "Seu amor é o meu norte.", "Você é o meu sim favorito.", "Você é o motivo do meu brilho no olho.",
+    "Se beleza fosse pecado, você não teria perdão.", "Você é o motivo da minha felicidade.", "Você é o sol no meu dia cinza.",
+    "Você é o presente mais bonito que recebi.", "Seu sorriso vale mais que ouro.", "Você é a minha inspiração constante.",
+    "Você é a pessoa mais incrível que já conheci.", "Você é o que faltava no meu dia.", "Você é a minha doce melodia.",
+    "Você é a definição de perfeição.", "Você é a minha melhor companhia.", "Você é o sol que ilumina meu caminho.",
+    "Você é a estrela do meu show.", "Você é o motivo dos meus sonhos.", "Você é a minha paz.", "Você é o meu tudo.",
+    "Você é a razão do meu sorriso.", "Você é a minha melhor escolha."
+]
+
+FRASES_BISCOITO = [
+    "A sorte favorece os audazes.", "Grandes mudanças estão por vir.", "A felicidade é uma escolha.", "O sucesso está a um passo.", 
+    "Mantenha a calma e siga em frente.", "Um novo amigo trará alegria.", "Seu esforço será recompensado.", "Confie na sua intuição.", 
+    "Seu futuro é brilhante.", "Dê um tempo para si mesmo.", "A paciência é uma virtude.", "Algo maravilhoso vai acontecer.", 
+    "A vida é um presente, aproveite.", "Você é mais forte do que imagina.", "Grandes coisas vêm para quem espera.", 
+    "O amor está no ar.", "Seja a mudança que deseja ver no mundo.", "O momento certo é agora.", 
+    "A jornada é tão importante quanto o destino.", "Acredite nos seus sonhos.", "Sua mente é um jardim.", 
+    "A simplicidade é o segredo da paz.", "Aproveite as pequenas alegrias.", "A coragem é sua melhor aliada.", 
+    "Hoje é um bom dia para começar.", "Sua criatividade não tem limites.", "Tudo se ajeita.", 
+    "Seja grato por tudo.", "A verdade libertará você.", "Sua bondade é sua maior força.", 
+    "Novas oportunidades surgirão.", "O otimismo ém a chave do sucesso.", "Siga o seu coração.", 
+    "A vida é uma aventura.", "Sua dedicação dará frutos.", "O sol sempre volta a brilhar.", 
+    "Aprenda com seus erros.", "Sua voz tem poder.", "Mantenha o foco no positivo.", 
+    "A esperança é eterna.", "A harmonia está dentro de você.", "Sua sabedoria crescerá.", 
+    "A vida recompensa o esforço.", "O presente é o único lugar que importa.", "Seja gentil consigo mesmo.", 
+    "A vida flui como um rio.", "Sua intuição está correta.", "O equilíbrio é essencial.", 
+    "A alegria é contagiante.", "Suas escolhas definem seu caminho.", "Mantenha o coração aberto.", 
+    "A vitória é uma questão de tempo.", "Sua resiliência é inspiradora.", "O aprendizado nunca termina.", 
+    "Seu valor é imensurável.", "A amizade é um tesouro.", "O sucesso exige persistência.", 
+    "A beleza está nos olhos de quem vê.", "Sua energia atrai o bem.", "O silêncio também traz respostas.", 
+    "A mudança é inevitável.", "Sua autenticidade é seu brilho.", "O futuro pertence a você.", 
+    "A paz é o seu maior bem.", "A sorte acompanha a preparação.", "Seu caminho será iluminado.", 
+    "A vida ama você.", "O riso é o melhor remédio.", "A esperança é o primeiro passo.", 
+    "Sua jornada é única.", "O universo tem planos incríveis para você hoje.", "Acredite no seu potencial.",
+    "A magia acontece onde você está.", "Seu riso transforma o mundo.", "Tudo flui para o melhor.",
+    "Você está brilhando hoje.", "O amanhã começa agora.", "Sua luz é inesgotável.",
+    "A bondade abre caminhos.", "Sua calma é sua força.", "O mundo precisa da sua energia.",
+    "Você é capaz de grandes coisas.", "Siga seus sonhos com coragem.", "O presente é sagrado.",
+    "A vida é plena.", "Sua sabedoria é um presente.", "A felicidade mora nos detalhes.",
+    "Você faz a diferença.", "Tudo dará certo.", "Seu brilho próprio encanta.", "A paz começa em você."
+]
+
+MOEDA = ["Cara", "Coroa"]
+
+class PPTView(discord.ui.View):
+    def __init__(self, jogador1, jogador2):
+        super().__init__(timeout=60)
+        self.jogador1 = jogador1
+        self.jogador2 = jogador2
+        self.escolhas = {}
+
+    async def processar(self, interaction, escolha):
+        if interaction.user.id not in [self.jogador1, self.jogador2]:
+            await interaction.response.send_message("❌ Você não participa deste duelo.", ephemeral=True)
+            return
+
+        self.escolhas[interaction.user.id] = escolha
+        await interaction.response.send_message(f"✅ Você escolheu **{escolha}**", ephemeral=True)
+
+        if len(self.escolhas) == 2:
+            p1 = self.escolhas[self.jogador1]
+            p2 = self.escolhas[self.jogador2]
+
+            if p1 == p2:
+                resultado = "🤝 Empate!"
+            elif ((p1 == "pedra" and p2 == "tesoura") or (p1 == "papel" and p2 == "pedra") or (p1 == "tesoura" and p2 == "papel")):
+                resultado = f"🏆 <@{self.jogador1}> venceu!"
+                adicionar_xp(self.jogador1, 30)
+            else:
+                resultado = f"🏆 <@{self.jogador2}> venceu!"
+                adicionar_xp(self.jogador2, 30)
+
+            embed = discord.Embed(title="⚔️ Duelo Finalizado", description=resultado, color=discord.Color.green())
+            embed.add_field(name="Jogador 1", value=p1.capitalize())
+            embed.add_field(name="Jogador 2", value=p2.capitalize())
+            await interaction.channel.send(embed=embed)
+            self.stop()
+
+    @discord.ui.button(label="🪨 Pedra", style=discord.ButtonStyle.secondary)
+    async def pedra(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.processar(interaction, "pedra")
+
+    @discord.ui.button(label="📄 Papel", style=discord.ButtonStyle.primary)
+    async def papel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.processar(interaction, "papel")
+
+    @discord.ui.button(label="✂️ Tesoura", style=discord.ButtonStyle.danger)
+    async def tesoura(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.processar(interaction, "tesoura")
+
+# ======================================================
+# EVENTOS
+# ======================================================
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    print("✅ Bot online e comandos sincronizados!")
+    try:
+        await bot.tree.sync()
+        print("=" * 40)
+        print(f"✅ Bot conectado como {bot.user}")
+        print(f"📡 Latência: {round(bot.latency * 1000)}ms")
+        print("✅ Slash Commands sincronizados.")
+        print("=" * 40)
+    except Exception as erro:
+        print(f"Erro ao sincronizar comandos: {erro}")
 
-bot.run(os.getenv("DISCORD_TOKEN"))
+
+@bot.event
+async def on_message(message: discord.Message):
+
+    # Ignora mensagens de bots
+    if message.author.bot:
+        return
+
+    guild_id = message.guild.id if message.guild else None
+
+    # ======================================================
+    # JOGO DE ADIVINHAÇÃO
+    # ======================================================
+
+    if guild_id in jogos_ativos:
+
+        try:
+            tentativa = int(message.content)
+
+            numero = jogos_ativos[guild_id]
+
+            if tentativa == numero:
+
+                adicionar_xp(message.author.id, 20)
+
+                await message.reply(
+                    "🎉 Parabéns! Você acertou o número!\n⭐ +20 XP"
+                )
+
+                del jogos_ativos[guild_id]
+
+            elif tentativa < numero:
+
+                await message.reply(
+                    "📈 O número secreto é **maior**."
+                )
+
+            else:
+
+                await message.reply(
+                    "📉 O número secreto é **menor**."
+                )
+
+        except ValueError:
+            # Ignora mensagens que não são números
+            pass
+
+    # ======================================================
+    # JOGO DO ANAGRAMA
+    # ======================================================
+
+    elif guild_id in anagramas_ativos:
+
+        resposta = message.content.strip().lower()
+
+        palavra = anagramas_ativos[guild_id].lower()
+
+        if resposta == palavra:
+
+            adicionar_xp(message.author.id, 25)
+
+            embed = discord.Embed(
+                title="🏆 Anagrama",
+                description=(
+                    f"Parabéns, {message.author.mention}!\n\n"
+                    f"Você acertou a palavra **{palavra}**.\n"
+                    "⭐ Você recebeu **25 XP**."
+                ),
+                color=discord.Color.green()
+            )
+
+            await message.reply(embed=embed)
+
+            del anagramas_ativos[guild_id]
+
+        else:
+
+            try:
+                await message.add_reaction("❌")
+            except discord.HTTPException:
+                pass
+
+    # ======================================================
+    # JOGO DA FORCA
+    # ======================================================
+
+    if guild_id in forca_ativos:
+
+        jogo = forca_ativos[guild_id]
+
+        letra = message.content.strip().lower()
+
+        # Aceita apenas uma letra
+        if len(letra) != 1 or not letra.isalpha():
+            await bot.process_commands(message)
+            return
+
+        # Evita repetir letra
+        if letra in jogo["letras"]:
+            await message.add_reaction("⚠️")
+            await bot.process_commands(message)
+            return
+
+        jogo["letras"].append(letra)
+
+        # Conta erro
+        if letra not in jogo["palavra"]:
+            jogo["erros"] += 1
+
+        palavra_exibida = " ".join(
+            l if l in jogo["letras"] else "_"
+            for l in jogo["palavra"]
+        )
+
+        # ==========================
+        # Vitória
+        # ==========================
+
+        if "_" not in palavra_exibida:
+
+            adicionar_xp(message.author.id, 30)
+
+            embed = discord.Embed(
+                title="🏆 Você venceu!",
+                description=(
+                    f"A palavra era **{jogo['palavra']}**\n\n"
+                    "⭐ Você ganhou **30 XP**."
+                ),
+                color=discord.Color.green()
+            )
+
+            await message.reply(embed=embed)
+
+            del forca_ativos[guild_id]
+
+        # ==========================
+        # Derrota
+        # ==========================
+
+        elif jogo["erros"] >= 6:
+
+            embed = discord.Embed(
+                title="💀 Você perdeu!",
+                description=f"A palavra era **{jogo['palavra']}**",
+                color=discord.Color.red()
+            )
+
+            await message.reply(embed=embed)
+
+            del forca_ativos[guild_id]
+
+        # ==========================
+        # Continua jogando
+        # ==========================
+
+        else:
+
+            embed = discord.Embed(
+                title="🔨 Jogo da Forca",
+                description=f"`{palavra_exibida}`",
+                color=discord.Color.orange()
+            )
+
+            embed.add_field(
+                name="❌ Erros",
+                value=f"{jogo['erros']}/6",
+                inline=False
+            )
+
+            embed.add_field(
+                name="🔤 Letras utilizadas",
+                value=", ".join(jogo["letras"]),
+                inline=False
+            )
+
+            embed.set_footer(
+                text="Digite outra letra no chat."
+            )
+
+            await message.reply(embed=embed)
+
