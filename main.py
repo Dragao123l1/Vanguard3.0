@@ -15,11 +15,22 @@ Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
 
 # --- CONFIGURAÇÃO ---
 mongo_uri = os.environ.get("MONGO_URI")
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+
+# A CRIAÇÃO DO BOT DEVE FICAR AQUI, ANTES DOS COMANDOS
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Lista de palavras para os jogos (faltava isto!)
+PALAVRAS = ["python", "discord", "servidor", "mongodb", "programacao"]
+
+# Agora sim, a conexão com MongoDB
+mongo_uri = os.environ.get("MONGO_URI")
 client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
 db = client["vanguard"]
 usuarios = db["usuarios"]
 
-# TESTE DE CONEXÃO (ISSO VAI TE MOSTRAR O ERRO REAL NOS LOGS)
 try:
     client.server_info()
     print("Conexão com MongoDB estabelecida com sucesso!")
