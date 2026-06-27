@@ -18,7 +18,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-client = MongoClient(os.getenv("MONGO_URI"))
+client = MongoClient(os.environ.get("MONGO_URI"), tlsAllowInvalidCertificates=True)
 db = client["vanguard"]
 usuarios = db["usuarios"]
 
