@@ -1,5 +1,4 @@
 import discord
-discord.VoiceClient.warn_nacl = False
 import os
 import random
 import io
@@ -21,19 +20,22 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot de diversão online 🚀"
+    return "Bot online!"
 
-Thread(
-    target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))),
-    daemon=True
-).start()
+def run():
+    app.run(host="0.0.0.0", port=10000)
+
+Thread(target=run, daemon=True).start()
 
 # ======================================================
 # BOT
 # ======================================================
 
+discord.VoiceClient.warn_nacl = False
+
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
