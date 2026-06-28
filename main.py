@@ -1,36 +1,28 @@
 import os
-import io
 import random
-import asyncio
+import io
 import urllib.parse
-import requests
 import discord
-import time
+import requests
 
-from datetime import timedelta
 from flask import Flask
 from threading import Thread
-
 from discord.ext import commands
 from discord import app_commands
-
-from supabase import create_client, Client
+from datetime import timedelta
 
 # ======================================================
-# FLASK (RENDER KEEP ALIVE)
+# KEEP ALIVE (RENDER)
 # ======================================================
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Arcad operante!"
+    return "Bot de diversão online 🚀"
 
 Thread(
-    target=lambda: app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000))
-    ),
+    target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))),
     daemon=True
 ).start()
 
@@ -40,98 +32,55 @@ Thread(
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ======================================================
-# SUPABASE
+# DADOS
 # ======================================================
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# ======================================================
-# CACHE (OTIMIZAÇÃO)
-# ======================================================
-
-xp_cache = {}
-cooldowns = {}
-
-# ======================================================
-# XP SYSTEM OTIMIZADO
-# ======================================================
-
-def obter_xp(user_id: int):
-    user_id = str(user_id)
-
-    if user_id in xp_cache:
-        return xp_cache[user_id]
-
-    res = supabase.table("usuarios") \
-        .select("xp") \
-        .eq("user_id", user_id) \
-        .single() \
-        .execute()
-
-    xp = res.data["xp"] if res.data else 0
-    xp_cache[user_id] = xp
-    return xp
-
-
-def adicionar_xp(user_id: int, qtd: int):
-    user_id = str(user_id)
-
-    xp = obter_xp(user_id)
-    novo = xp + qtd
-
-    xp_cache[user_id] = novo
-
-    supabase.table("usuarios").upsert({
-        "user_id": user_id,
-        "xp": novo
-    }).execute()
-
-
-def definir_xp(user_id: int, xp: int):
-    user_id = str(user_id)
-
-    xp_cache[user_id] = xp
-
-    supabase.table("usuarios").upsert({
-        "user_id": user_id,
-        "xp": xp
-    }).execute()
-
-# ======================================================
-# VARIÁVEIS JOGOS
-# ======================================================
-
-jogos_ativos = {}
-anagramas_ativos = {}
-forca_ativos = {}
-ppt_duelos = {}
-
-PALAVRAS_ANAGRAMA = [
-    "computador","discord","teclado","celular","planeta","biologia",
-    "geografia","internet","servidor","developer","tecnologia","hardware",
-    "software","monitor","mouse","navegador"
+PALAVRAS = [
+    "computador", "discord", "teclado", "internet", "servidor",
+    "python", "codigo", "programa", "developer"
 ]
 
 MOEDA = ["Cara", "Coroa"]
 
-LISTA_CANTADAS = ["Você é incrível 😏", "Você é especial 💘", "Você brilha ✨"]
+CANTADAS = [
+    "Você é o bug que eu não quero corrigir 😏",
+    "Você é mais bonita que código funcionando de primeira 💘",
+    "Se beleza fosse CPU, você seria um supercomputador 🔥"
+]
 
-FRASES_BISCOITO = ["Sorte grande vem aí", "Você vai vencer", "Confie no processo"]
+BISCOITOS = [
+    "Hoje vai dar bom 🍀",
+    "Você vai surpreender alguém hoje ✨",
+    "Algo incrível vai acontecer 👀"
+]
 
 # ======================================================
-# ON_MESSAGE (OTIMIZADO + ANTI-SPAM)
+# JOGOS EM MEMÓRIA
+# ======================================================
+
+adivinhar = {}
+anagrama = {}
+forca = {}
+
+# ======================================================
+# READY
 # ======================================================
 
 @bot.event
-async def on_message(message: discord.Message):
+async def on_ready():
+    await bot.tree.sync()
+    print(f"✅ Online como {bot.user}")
+
+# ======================================================
+# ON MESSAGE (JOGOS)
+# ======================================================
+
+@bot.event
+async def on_message(message):
 
     if message.author.bot:
         return
@@ -139,94 +88,249 @@ async def on_message(message: discord.Message):
     if not message.guild:
         return
 
-    now = time.time()
+    gid = message.guild.id
 
-    if message.author.id in cooldowns:
-        if now - cooldowns[message.author.id] < 1:
-            return
-
-    cooldowns[message.author.id] = now
-
-    guild_id = message.guild.id
-
-    # ADIVINHAÇÃO
-    if guild_id in jogos_ativos:
+    # =========================
+    # ADIVINHAR
+    # =========================
+    if gid in adivinhar:
         try:
             num = int(message.content)
 
-            if num == jogos_ativos[guild_id]:
-                adicionar_xp(message.author.id, 20)
-                await message.reply("✔️ Acertou +20 XP")
-                del jogos_ativos[guild_id]
-            elif num < jogos_ativos[guild_id]:
+            if num == adivinhar[gid]:
+                await message.reply("🎉 Acertou o número!")
+                del adivinhar[gid]
+            elif num < adivinhar[gid]:
                 await message.reply("📈 maior")
             else:
                 await message.reply("📉 menor")
         except:
             pass
 
+    # =========================
     # ANAGRAMA
-    elif guild_id in anagramas_ativos:
-        if message.content.lower() == anagramas_ativos[guild_id]:
-            adicionar_xp(message.author.id, 25)
-            await message.reply("🏆 Anagrama certo!")
-            del anagramas_ativos[guild_id]
+    # =========================
+    elif gid in anagrama:
+        if message.content.lower() == anagrama[gid]:
+            await message.reply("🏆 Acertou o anagrama!")
+            del anagrama[gid]
 
-    # FORCA
-    if guild_id in forca_ativos:
-        jogo = forca_ativos[guild_id]
-        letra = message.content.lower()
+    # =========================
+    # FORCA (SIMPLES E SEGURA)
+    # =========================
+    elif gid in forca:
+        palavra = forca[gid]
 
-        if len(letra) == 1 and letra.isalpha():
-            if letra not in jogo["letras"]:
-                jogo["letras"].append(letra)
-                if letra not in jogo["palavra"]:
-                    jogo["erros"] += 1
+        if message.content.lower() == palavra:
+            await message.reply("🏆 Você venceu a forca!")
+            del forca[gid]
 
     await bot.process_commands(message)
+
+# ======================================================
+# HELP UI (PROFISSIONAL)
+# ======================================================
+
+class PPTWView(discord.ui.View):
+    def __init__(self, p1: int, p2: int):
+        super().__init__(timeout=60)
+        self.p1 = p1
+        self.p2 = p2
+        self.escolhas = {}
+
+    async def process(self, interaction: discord.Interaction, escolha: str):
+
+        if interaction.user.id not in [self.p1, self.p2]:
+            return await interaction.response.send_message(
+                "❌ Você não está neste duelo.",
+                ephemeral=True
+            )
+
+        self.escolhas[interaction.user.id] = escolha
+        await interaction.response.send_message(f"✔ Escolheu {escolha}", ephemeral=True)
+
+        if len(self.escolhas) < 2:
+            return
+
+        p1_escolha = self.escolhas[self.p1]
+        p2_escolha = self.escolhas[self.p2]
+
+        if p1_escolha == p2_escolha:
+            resultado = "🤝 Empate!"
+        elif (
+            (p1_escolha == "pedra" and p2_escolha == "tesoura") or
+            (p1_escolha == "papel" and p2_escolha == "pedra") or
+            (p1_escolha == "tesoura" and p2_escolha == "papel")
+        ):
+            resultado = f"🏆 <@{self.p1}> venceu!"
+        else:
+            resultado = f"🏆 <@{self.p2}> venceu!"
+
+        embed = discord.Embed(
+            title="⚔️ Duelo Finalizado",
+            description=resultado,
+            color=discord.Color.gold()
+        )
+
+        embed.add_field(name="Jogador 1", value=p1_escolha)
+        embed.add_field(name="Jogador 2", value=p2_escolha)
+
+        await interaction.channel.send(embed=embed)
+        self.stop()
+
+    @discord.ui.button(label="🪨 Pedra", style=discord.ButtonStyle.secondary)
+    async def pedra(self, interaction, button):
+        await self.process(interaction, "pedra")
+
+    @discord.ui.button(label="📄 Papel", style=discord.ButtonStyle.primary)
+    async def papel(self, interaction, button):
+        await self.process(interaction, "papel")
+
+    @discord.ui.button(label="✂️ Tesoura", style=discord.ButtonStyle.danger)
+    async def tesoura(self, interaction, button):
+        await self.process(interaction, "tesoura")
+
+class HelpView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+
+    async def update(self, interaction, embed):
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    # ======================
+    # 🎮 JOGOS
+    # ======================
+    @discord.ui.button(label="Jogos", style=discord.ButtonStyle.primary, emoji="🎮")
+    async def jogos(self, interaction, button):
+
+        embed = discord.Embed(
+            title="🎮 Jogos",
+            color=discord.Color.blue(),
+            description=(
+                "**/adivinhar** → Tente acertar um número de 1 a 100\n"
+                "**/anagrama** → Descubra a palavra embaralhada\n"
+                "**/forca** → Jogo da forca simples\n"
+                "**/ppt** → Pedra, papel e tesoura contra o bot\n"
+                "**/dueloppt** → Desafie outro jogador no PPT"
+            )
+        )
+
+        await self.update(interaction, embed)
+
+    # ======================
+    # 🎲 ALEATÓRIOS
+    # ======================
+    @discord.ui.button(label="Aleatórios", style=discord.ButtonStyle.success, emoji="🎲")
+    async def aleatorios(self, interaction, button):
+
+        embed = discord.Embed(
+            title="🎲 Aleatórios",
+            color=discord.Color.green(),
+            description=(
+                "**/dado** → Rola um dado com X lados\n"
+                "**/escolha** → Escolhe entre duas opções\n"
+                "**/caraoucoroa** → Sorteia cara ou coroa\n"
+                "**/biscoito** → Recebe uma frase da sorte\n"
+                "**/cantada** → Envia uma cantada para alguém"
+            )
+        )
+
+        await self.update(interaction, embed)
+
+    # ======================
+    # 📊 INFO
+    # ======================
+    @discord.ui.button(label="Info", style=discord.ButtonStyle.secondary, emoji="📊")
+    async def info(self, interaction, button):
+
+        embed = discord.Embed(
+            title="📊 Informações",
+            color=discord.Color.grey(),
+            description=(
+                "**/ping** → Mostra latência do bot\n"
+                "**/avatar** → Mostra avatar de um usuário\n"
+                "**/serverinfo** → Informações do servidor\n"
+                "**/userinfo** → Informações de um usuário"
+            )
+        )
+
+        await self.update(interaction, embed)
+
+    # ======================
+    # 🛡️ STAFF
+    # ======================
+    @discord.ui.button(label="Staff", style=discord.ButtonStyle.danger, emoji="🛡️")
+    async def staff(self, interaction, button):
+
+        embed = discord.Embed(
+            title="🛡️ Comandos de Moderação",
+            color=discord.Color.red(),
+            description=(
+                "**/ban** → Bane um usuário do servidor\n"
+                "**/mute** → Silencia um usuário por tempo\n"
+                "**/unmute** → Remove o silêncio\n"
+                "**/limpar** → Apaga mensagens do chat\n"
+                "**/lock** → Bloqueia o envio de mensagens\n"
+                "**/unlock** → Desbloqueia o canal"
+            )
+        )
+
+        await self.update(interaction, embed)
+
+# ======================================================
+# AJUDA
+# ======================================================
+
+@bot.tree.command(name="ajuda")
+async def ajuda(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="🎮 Painel de Ajuda",
+        description="Use os botões abaixo 👇",
+        color=discord.Color.purple()
+    )
+
+    await interaction.response.send_message(embed=embed, view=HelpView())
 
 # ======================================================
 # IA IMAGEM
 # ======================================================
 
-@bot.tree.command(name="imagem", description="Gera imagem via IA")
+@bot.tree.command(name="imagem")
 async def imagem(interaction: discord.Interaction, descricao: str):
+
     await interaction.response.defer()
 
-    try:
-        url = f"https://image.pollinations.ai/p/{urllib.parse.quote(descricao)}?seed={random.randint(1,9999)}"
-        r = requests.get(url, timeout=60)
+    url = f"https://image.pollinations.ai/p/{urllib.parse.quote(descricao)}"
+    r = requests.get(url)
 
-        file = discord.File(io.BytesIO(r.content), filename="img.png")
+    file = discord.File(io.BytesIO(r.content), filename="img.png")
 
-        embed = discord.Embed(
-            title="🎨 Imagem gerada",
-            description=descricao,
-            color=discord.Color.purple()
-        )
+    embed = discord.Embed(
+        title="🎨 Imagem gerada",
+        description=descricao,
+        color=discord.Color.blue()
+    )
 
-        embed.set_image(url="attachment://img.png")
+    embed.set_image(url="attachment://img.png")
 
-        await interaction.followup.send(embed=embed, file=file)
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erro: {e}")
-
+    await interaction.followup.send(embed=embed, file=file)
 
 # ======================================================
 # JOGOS
 # ======================================================
 
 @bot.tree.command(name="adivinhar")
-async def adivinhar(interaction: discord.Interaction):
-    jogos_ativos[interaction.guild.id] = random.randint(1, 100)
-    await interaction.response.send_message("🎯 Jogo iniciado!")
+async def adivinhar_cmd(interaction: discord.Interaction):
+    adivinhar[interaction.guild.id] = random.randint(1, 100)
+    await interaction.response.send_message("🎯 Adivinhe de 1 a 100")
 
 
 @bot.tree.command(name="anagrama")
-async def anagrama(interaction: discord.Interaction):
-    palavra = random.choice(PALAVRAS_ANAGRAMA)
-    anagramas_ativos[interaction.guild.id] = palavra
+async def anagrama_cmd(interaction: discord.Interaction):
+
+    palavra = random.choice(PALAVRAS)
+    anagrama[interaction.guild.id] = palavra
 
     letras = list(palavra)
     random.shuffle(letras)
@@ -235,23 +339,75 @@ async def anagrama(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="forca")
-async def forca(interaction: discord.Interaction):
-    palavra = random.choice(PALAVRAS_ANAGRAMA)
+async def forca_cmd(interaction: discord.Interaction):
 
-    forca_ativos[interaction.guild.id] = {
-        "palavra": palavra,
-        "letras": [],
-        "erros": 0
-    }
+    palavra = random.choice(PALAVRAS)
+    forca[interaction.guild.id] = palavra
 
-    await interaction.response.send_message("🔨 Forca iniciada!")
+    await interaction.response.send_message("🔨 Jogo da forca iniciado!")
 
+@bot.tree.command(name="dueloppt", description="Desafie alguém no PPTW PRO")
+async def dueloppt(interaction: discord.Interaction, usuario: discord.Member):
 
-@bot.tree.command(name="caraoucoroa")
-async def caraoucoroa(interaction: discord.Interaction):
-    adicionar_xp(interaction.user.id, 5)
-    await interaction.response.send_message(random.choice(MOEDA))
+    if usuario.bot:
+        return await interaction.response.send_message("❌ Não pode desafiar bot.", ephemeral=True)
 
+    if usuario.id == interaction.user.id:
+        return await interaction.response.send_message("❌ Não pode se auto-desafiar.", ephemeral=True)
+
+    embed = discord.Embed(
+        title="⚔️ Duelo PPTW PRO",
+        description=f"{interaction.user.mention} vs {usuario.mention}\n\nClique nos botões para jogar!",
+        color=discord.Color.red()
+    )
+
+    view = PPTWView(interaction.user.id, usuario.id)
+
+    await interaction.response.send_message(embed=embed, view=view)
+
+@bot.tree.command(name="ppt", description="Jogue Pedra, Papel e Tesoura contra o bot")
+async def ppt(interaction: discord.Interaction, escolha: str):
+
+    escolha = escolha.lower()
+    opcoes = ["pedra", "papel", "tesoura"]
+
+    if escolha not in opcoes:
+        return await interaction.response.send_message(
+            "❌ Escolha inválida! Use: pedra, papel ou tesoura.",
+            ephemeral=True
+        )
+
+    bot_escolha = random.choice(opcoes)
+
+    # Regras
+    if escolha == bot_escolha:
+        resultado = "🤝 Empate!"
+        xp = 5
+    elif (
+        (escolha == "pedra" and bot_escolha == "tesoura") or
+        (escolha == "papel" and bot_escolha == "pedra") or
+        (escolha == "tesoura" and bot_escolha == "papel")
+    ):
+        resultado = "🏆 Você venceu!"
+        xp = 10
+    else:
+        resultado = "💀 Você perdeu!"
+        xp = 0
+
+    embed = discord.Embed(
+        title="✂️ Pedra, Papel e Tesoura",
+        color=discord.Color.blue()
+    )
+
+    embed.add_field(name="Sua escolha", value=escolha.capitalize(), inline=True)
+    embed.add_field(name="Bot", value=bot_escolha.capitalize(), inline=True)
+    embed.add_field(name="Resultado", value=resultado, inline=False)
+
+    await interaction.response.send_message(embed=embed)
+    
+# ======================================================
+# ALEATÓRIOS
+# ======================================================
 
 @bot.tree.command(name="dado")
 async def dado(interaction: discord.Interaction, lados: int = 6):
@@ -259,107 +415,53 @@ async def dado(interaction: discord.Interaction, lados: int = 6):
 
 
 @bot.tree.command(name="escolha")
-async def escolha(interaction: discord.Interaction, opcao1: str, opcao2: str):
-    await interaction.response.send_message(random.choice([opcao1, opcao2]))
+async def escolha(interaction: discord.Interaction, op1: str, op2: str):
+    await interaction.response.send_message(random.choice([op1, op2]))
+
+
+@bot.tree.command(name="caraoucoroa")
+async def caraoucoroa(interaction: discord.Interaction):
+    await interaction.response.send_message(random.choice(MOEDA))
 
 
 @bot.tree.command(name="biscoito")
 async def biscoito(interaction: discord.Interaction):
-    await interaction.response.send_message(random.choice(FRASES_BISCOITO))
+    await interaction.response.send_message(random.choice(BISCOITOS))
 
 
 @bot.tree.command(name="cantada")
 async def cantada(interaction: discord.Interaction, membro: discord.Member):
-    await interaction.response.send_message(f"{membro.mention} {random.choice(LISTA_CANTADAS)}")
+    await interaction.response.send_message(f"{membro.mention} {random.choice(CANTADAS)}")
 
-@bot.tree.command(name="ajuda", description="Painel de comandos do bot")
-async def ajuda(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="📚 Painel de Ajuda - Arcad",
-        description="Selecione uma categoria para ver os comandos.",
-        color=discord.Color.purple()
-    )
-
-    embed.add_field(
-        name="🎮 Jogos",
-        value=(
-            "`/adivinhar` - Número secreto\n"
-            "`/anagrama` - Desafio de palavras\n"
-            "`/forca` - Jogo da forca\n"
-            "`/ppt` - Pedra, papel e tesoura\n"
-            "`/dueloppt` - Duelo contra jogador"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="💰 XP / Level",
-        value=(
-            "`/xp` - Ver seu XP\n"
-            "`/level` - Ver seu nível\n"
-            "`/rankxp` - Ranking do servidor\n"
-            "`/globalxp` - Ranking global"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="✨ Diversão",
-        value=(
-            "`/biscoito` - Frase da sorte\n"
-            "`/cantada` - Envia cantada\n"
-            "`/caraoucoroa` - Cara ou coroa\n"
-            "`/dado` - Rolar dado\n"
-            "`/escolha` - Escolha aleatória"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="🎨 IA",
-        value="`/imagem` - Gera imagem com IA",
-        inline=False
-    )
-
-    embed.add_field(
-        name="🛡️ Moderação",
-        value=(
-            "`/ban` - Banir usuário\n"
-            "`/mute` - Silenciar usuário\n"
-            "`/unmute` - Remover silêncio\n"
-            "`/limpar` - Limpar chat\n"
-            "`/lock` - Trancar canal\n"
-            "`/unlock` - Destrancar canal"
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="📊 Utilidades",
-        value=(
-            "`/ping` - Latência\n"
-            "`/avatar` - Avatar do usuário\n"
-            "`/userinfo` - Info do usuário\n"
-            "`/serverinfo` - Info do servidor"
-        ),
-        inline=False
-    )
-
-    embed.set_footer(text="Arcad • Sistema otimizado para Render 🚀")
-
-    await interaction.response.send_message(embed=embed)
-    
 # ======================================================
-# MODERAÇÃO
+# INFO
 # ======================================================
 
-@bot.tree.command(name="limpar")
-@app_commands.checks.has_permissions(manage_messages=True)
-async def limpar(interaction: discord.Interaction, qtd: int):
-    await interaction.channel.purge(limit=qtd)
-    await interaction.response.send_message("🧹 Limpo", ephemeral=True)
+@bot.tree.command(name="ping")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(f"🏓 {round(bot.latency * 1000)}ms")
 
+
+@bot.tree.command(name="avatar")
+async def avatar(interaction: discord.Interaction, membro: discord.Member = None):
+    m = membro or interaction.user
+    await interaction.response.send_message(m.display_avatar.url)
+
+
+@bot.tree.command(name="serverinfo")
+async def serverinfo(interaction: discord.Interaction):
+    g = interaction.guild
+    await interaction.response.send_message(f"🏰 {g.name} | {g.member_count}")
+
+
+@bot.tree.command(name="userinfo")
+async def userinfo(interaction: discord.Interaction, membro: discord.Member = None):
+    m = membro or interaction.user
+    await interaction.response.send_message(f"👤 {m.name} | {m.id}")
+
+# ======================================================
+# STAFF
+# ======================================================
 
 @bot.tree.command(name="ban")
 @app_commands.checks.has_permissions(ban_members=True)
@@ -370,8 +472,8 @@ async def ban(interaction: discord.Interaction, membro: discord.Member):
 
 @bot.tree.command(name="mute")
 @app_commands.checks.has_permissions(moderate_members=True)
-async def mute(interaction: discord.Interaction, membro: discord.Member, min: int):
-    await membro.timeout(discord.utils.utcnow() + timedelta(minutes=min))
+async def mute(interaction: discord.Interaction, membro: discord.Member, minutos: int):
+    await membro.timeout(discord.utils.utcnow() + timedelta(minutes=minutos))
     await interaction.response.send_message("🔇 Mutado")
 
 
@@ -380,6 +482,13 @@ async def mute(interaction: discord.Interaction, membro: discord.Member, min: in
 async def unmute(interaction: discord.Interaction, membro: discord.Member):
     await membro.timeout(None)
     await interaction.response.send_message("🔊 Desmutado")
+
+
+@bot.tree.command(name="limpar")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def limpar(interaction: discord.Interaction, qtd: int):
+    await interaction.channel.purge(limit=qtd)
+    await interaction.response.send_message("🧹 Limpo", ephemeral=True)
 
 
 @bot.tree.command(name="lock")
@@ -404,228 +513,12 @@ async def unlock(interaction: discord.Interaction):
     await interaction.response.send_message("🔓 Desbloqueado")
 
 # ======================================================
-# XP / LEVEL
-# ======================================================
-
-@bot.tree.command(name="xp")
-async def xp(interaction: discord.Interaction):
-    xp_usuario = obter_xp(interaction.user.id)
-    await interaction.response.send_message(f"⭐ {xp_usuario} XP")
-
-
-@bot.tree.command(name="level")
-async def level(interaction: discord.Interaction):
-    xp_usuario = obter_xp(interaction.user.id)
-    nivel = xp_usuario // 100
-
-    await interaction.response.send_message(f"🏆 Nível {nivel} | XP {xp_usuario}")
-
-
-# ======================================================
-# RANKING
-# ======================================================
-
-@bot.tree.command(name="rankxp")
-async def rankxp(interaction: discord.Interaction):
-
-    resultado = supabase.table("usuarios") \
-        .select("user_id,xp") \
-        .order("xp", desc=True) \
-        .limit(10) \
-        .execute()
-
-    membros = {str(m.id): m for m in interaction.guild.members}
-
-    texto = ""
-    pos = 1
-
-    for u in resultado.data:
-        if u["user_id"] in membros:
-            m = membros[u["user_id"]]
-            texto += f"{pos}. {m.display_name} - {u['xp']} XP\n"
-            pos += 1
-
-    if not texto:
-        texto = "Nenhum jogador encontrado"
-
-    embed = discord.Embed(
-        title="🏆 Ranking Servidor",
-        description=texto,
-        color=discord.Color.gold()
-    )
-
-    await interaction.response.send_message(embed=embed)
-
-
-@bot.tree.command(name="globalxp")
-async def globalxp(interaction: discord.Interaction):
-
-    resultado = supabase.table("usuarios") \
-        .select("user_id,xp") \
-        .order("xp", desc=True) \
-        .limit(10) \
-        .execute()
-
-    texto = ""
-
-    for i, u in enumerate(resultado.data, start=1):
-        texto += f"{i}. {u['user_id']} - {u['xp']} XP\n"
-
-    if not texto:
-        texto = "Nenhum jogador encontrado"
-
-    embed = discord.Embed(
-        title="🌎 Ranking Global",
-        description=texto,
-        color=discord.Color.blue()
-    )
-
-    await interaction.response.send_message(embed=embed)
-
-
-# ======================================================
-# INFO COMMANDS
-# ======================================================
-
-@bot.tree.command(name="ping")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🏓 {round(bot.latency * 1000)}ms")
-
-
-@bot.tree.command(name="avatar")
-async def avatar(interaction: discord.Interaction, membro: discord.Member = None):
-    m = membro or interaction.user
-    await interaction.response.send_message(m.display_avatar.url)
-
-
-@bot.tree.command(name="serverinfo")
-async def serverinfo(interaction: discord.Interaction):
-    g = interaction.guild
-    await interaction.response.send_message(f"🏰 {g.name} | {g.member_count} membros")
-
-
-@bot.tree.command(name="userinfo")
-async def userinfo(interaction: discord.Interaction, membro: discord.Member = None):
-    m = membro or interaction.user
-    await interaction.response.send_message(f"👤 {m.name} | ID {m.id}")
-
-
-# ======================================================
-# PPT DUEL VIEW (COMPLETO)
-# ======================================================
-
-class PPTView(discord.ui.View):
-    def __init__(self, j1, j2):
-        super().__init__(timeout=60)
-        self.j1 = j1
-        self.j2 = j2
-        self.escolhas = {}
-
-    async def processar(self, interaction, escolha):
-
-        if interaction.user.id not in [self.j1, self.j2]:
-            await interaction.response.send_message("❌ Não participa", ephemeral=True)
-            return
-
-        self.escolhas[interaction.user.id] = escolha
-        await interaction.response.send_message(f"✔️ {escolha}", ephemeral=True)
-
-        if len(self.escolhas) == 2:
-
-            p1 = self.escolhas[self.j1]
-            p2 = self.escolhas[self.j2]
-
-            if p1 == p2:
-                res = "🤝 Empate"
-            elif (p1 == "pedra" and p2 == "tesoura") or (p1 == "papel" and p2 == "pedra") or (p1 == "tesoura" and p2 == "papel"):
-                res = f"<@{self.j1}> venceu!"
-                adicionar_xp(self.j1, 30)
-            else:
-                res = f"<@{self.j2}> venceu!"
-                adicionar_xp(self.j2, 30)
-
-            await interaction.channel.send(f"🏆 {res}")
-            self.stop()
-
-    @discord.ui.button(label="Pedra")
-    async def pedra(self, interaction, button):
-        await self.processar(interaction, "pedra")
-
-    @discord.ui.button(label="Papel")
-    async def papel(self, interaction, button):
-        await self.processar(interaction, "papel")
-
-    @discord.ui.button(label="Tesoura")
-    async def tesoura(self, interaction, button):
-        await self.processar(interaction, "tesoura")
-
-
-@bot.tree.command(name="ppt")
-@app_commands.choices(escolha=[
-    app_commands.Choice(name="Pedra", value="pedra"),
-    app_commands.Choice(name="Papel", value="papel"),
-    app_commands.Choice(name="Tesoura", value="tesoura")
-])
-async def ppt(interaction: discord.Interaction, escolha: app_commands.Choice[str]):
-
-    bot_escolha = random.choice(["pedra", "papel", "tesoura"])
-
-    if escolha.value == bot_escolha:
-        res = "🤝 Empate"
-        xp = 5
-    elif (escolha.value == "pedra" and bot_escolha == "tesoura") or \
-         (escolha.value == "papel" and bot_escolha == "pedra") or \
-         (escolha.value == "tesoura" and bot_escolha == "papel"):
-        res = "🏆 Você venceu"
-        xp = 20
-    else:
-        res = "💀 Você perdeu"
-        xp = 0
-
-    if xp > 0:
-        adicionar_xp(interaction.user.id, xp)
-
-    embed = discord.Embed(
-        title="✂️ PPT",
-        description=f"Você: {escolha.value}\nBot: {bot_escolha}\n\n{res}",
-        color=discord.Color.blue()
-    )
-
-    await interaction.response.send_message(embed=embed)
-
-
-@bot.tree.command(name="dueloppt")
-async def dueloppt(interaction: discord.Interaction, usuario: discord.Member):
-
-    if usuario.bot or usuario.id == interaction.user.id:
-        await interaction.response.send_message("❌ inválido", ephemeral=True)
-        return
-
-    embed = discord.Embed(
-        title="⚔️ Duelo PPT",
-        description=f"{interaction.user.mention} vs {usuario.mention}",
-        color=discord.Color.red()
-    )
-
-    await interaction.response.send_message(
-        embed=embed,
-        view=PPTView(interaction.user.id, usuario.id)
-    )
-
-
-# ======================================================
-# BOT START (FINAL)
+# START
 # ======================================================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
     raise Exception("DISCORD_TOKEN não encontrado")
-
-@bot.event
-async def on_ready():
-    await bot.tree.sync()
-    print(f"✅ Bot online: {bot.user}")
-
 
 bot.run(TOKEN)
