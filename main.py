@@ -1,3 +1,5 @@
+import discord
+discord.VoiceClient.warn_nacl = False
 import os
 import random
 import io
