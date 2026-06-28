@@ -1,3 +1,5 @@
+import sys
+print(sys.version)
 import discord
 discord.VoiceClient.warn_nacl = False
 import os
