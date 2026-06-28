@@ -496,3 +496,493 @@ async def on_message(message: discord.Message):
 
             await message.reply(embed=embed)
 
+    # ======================================================
+    # PROCESSA OS COMANDOS DO BOT
+    # ======================================================
+
+    await bot.process_commands(message)
+
+# ======================================================
+# FIM DOS EVENTOS
+# ======================================================
+
+
+# --- SLASH COMMANDS ---
+@bot.tree.command(name="ajuda", description="Menu de ajuda do arcad")
+async def ajuda(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="📚 Vanguard - Central de Ajuda",
+        description="Confira todos os comandos disponíveis:",
+        color=discord.Color.purple()
+    )
+
+    embed.add_field(
+        name="🎨 IA & Imagens",
+        value="`/imagem` → Gera imagens por IA",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎮 Jogos",
+        value=(
+            "`/adivinhar` → Jogo de adivinhação\n"
+            "`/anagrama` → Desafio de palavras\n"
+            "`/dado` → Rola um dado\n"
+            "`/forca` → Jogo da forca\n"
+            "`/caraoucoroa` → Jogue cara ou coroa\n"
+            "`/escolha` → Arcad escolhe uma opção aleatória"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="✨ Diversão",
+        value=(
+            "`/biscoito` → Frase da sorte\n"
+            "`/cantada` → Envia uma cantada"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📊 Utilidades",
+        value=(
+            "`/ping` → Latência do bot\n"
+            "`/avatar` → Mostra um avatar\n"
+            "`/userinfo` → Informações de usuário\n"
+            "`/serverinfo` → Informações do servidor\n"
+            "`/calcular` → Resolve cálculos\n`/xp` → Mostra seu XP\n`/level` → Mostra seu nível\n`/rankxp` → Ranking do servidor\n`/globalxp` → Ranking global"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🛡️ Administração (apenas Staff)",
+        value=(
+            "`/limpar` → Limpa mensagens\n"
+            "`/mute` → Silencia um membro\n"
+            "`/unmute` → Remove o silêncio\n"
+            "`/ban` → Bane um membro\n"
+            "`/aviso` → envia avisos para o servidor\n"
+            "`/lock`→ bloqueia o canal\n"
+            "`/unlock`→ desbloqueia o canal"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="Vanguard • Desenvolvido porwinchesstter 🚀")
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="imagem", description="Gera uma imagem via IA")
+async def imagem(interaction: discord.Interaction, descricao: str):
+    await interaction.response.defer()
+
+    try:
+        url = f"https://image.pollinations.ai/p/{urllib.parse.quote(descricao)}?seed={random.randint(1,9999)}"
+
+        resposta = requests.get(url, timeout=60)
+
+        arquivo = discord.File(
+            io.BytesIO(resposta.content),
+            filename="arte.png"
+        )
+
+        embed = discord.Embed(
+            title="🎨 Arte Gerada",
+            description=descricao,
+            color=discord.Color.purple()
+        )
+
+        embed.set_image(url="attachment://arte.png")
+
+        await interaction.followup.send(
+            embed=embed,
+            file=arquivo
+        )
+
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Erro ao gerar imagem: {e}"
+            )
+
+@bot.tree.command(name="adivinhar", description="Jogo 1-100")
+async def adivinhar(interaction: discord.Interaction):
+    jogos_ativos[interaction.guild.id] = random.randint(1, 100)
+    await interaction.response.send_message("🎯 Jogo iniciado! Digite um número de 1 a 100 no chat.")
+
+@bot.tree.command(name="anagrama", description="Desafio de anagrama")
+async def anagrama(interaction: discord.Interaction):
+    p = random.choice(PALAVRAS_ANAGRAMA)
+    anagramas_ativos[interaction.guild.id] = p
+    l = list(p.upper()); random.shuffle(l)
+    await interaction.response.send_message(f"🔤 Desafio: `{''.join(l)}` (Digite a palavra correta no chat)")
+
+    
+@bot.tree.command(name="caraoucoroa", description="Jogue cara ou coroa")
+async def caraoucoroa(interaction: discord.Interaction):
+
+    adicionar_xp(interaction.user.id, 5)
+
+    resultado = random.choice(MOEDA)
+
+    embed = discord.Embed(
+        title="🪙 Cara ou Coroa",
+        description=f"Resultado: **{resultado}**",
+        color=discord.Color.gold()
+    )
+
+    await interaction.response.send_message(embed=embed)
+    
+@bot.tree.command(name="forca", description="Jogo da forca")
+async def forca(interaction: discord.Interaction):
+
+    palavra = random.choice(PALAVRAS_ANAGRAMA).lower()
+
+    forca_ativos[interaction.guild.id] = {
+        "palavra": palavra,
+        "letras": [],
+        "erros": 0
+    }
+
+    palavra_oculta = " ".join("_" for _ in palavra)
+
+    embed = discord.Embed(
+        title="🔨 Jogo da Forca",
+        description=f"Palavra:\n`{palavra_oculta}`",
+        color=discord.Color.orange()
+    )
+
+    embed.add_field(
+        name="❌ Erros",
+        value="0/6",
+        inline=False
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="dado", description="Gira um dado")
+async def dado(interaction: discord.Interaction, lados: int = 6):
+    await interaction.response.send_message(f"🎲 Resultado: **{random.randint(1, lados)}**")
+
+@bot.tree.command(name="escolha", description="Escolhe entre duas opções")
+async def escolha(
+    interaction: discord.Interaction,
+    opcao1: str,
+    opcao2: str
+):
+    escolhida = random.choice([opcao1, opcao2])
+
+    embed = discord.Embed(
+        title="🤔 Escolha Aleatória",
+        description=f"Eu escolhi: **{escolhida}**",
+        color=discord.Color.blue()
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="biscoito", description="Sorte")
+async def biscoito(interaction: discord.Interaction):
+    await interaction.response.send_message(f"🥠 {random.choice(FRASES_BISCOITO)}")
+
+@bot.tree.command(name="cantada", description="Envia cantada")
+async def cantada(interaction: discord.Interaction, membro: discord.Member):
+    await interaction.response.send_message(f"💘 {membro.mention}, {random.choice(LISTA_CANTADAS)}")
+
+@bot.tree.command(name="avatar", description="Mostra avatar")
+async def avatar(interaction: discord.Interaction, membro: discord.Member = None):
+    m = membro or interaction.user
+    await interaction.response.send_message(embed=discord.Embed(title=f"Avatar de {m.name}").set_image(url=m.display_avatar.url))
+
+@bot.tree.command(name="ping", description="Latência")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(f"🏓 Pong! **{round(bot.latency * 1000)}ms**")
+
+@bot.tree.command(name="serverinfo", description="Info do servidor")
+async def serverinfo(interaction: discord.Interaction):
+    await interaction.response.send_message(f"🏰 Servidor: {interaction.guild.name} | Membros: {interaction.guild.member_count}")
+
+@bot.tree.command(name="userinfo", description="Info de usuário")
+async def userinfo(interaction: discord.Interaction, membro: discord.Member = None):
+    m = membro or interaction.user
+    await interaction.response.send_message(f"👤 {m.name} | ID: {m.id}")
+
+@bot.tree.command(name="calcular", description="Matemática")
+async def calcular(interaction: discord.Interaction, expressao: str):
+    try: await interaction.response.send_message(f"🧮 Resultado: **{eval(expressao)}**")
+    except: await interaction.response.send_message("❌ Expressão inválida.")
+
+@bot.tree.command(name="limpar", description="Limpa chat")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def limpar(interaction: discord.Interaction, qtd: int):
+    await interaction.channel.purge(limit=qtd)
+    await interaction.response.send_message("🧹 Limpo.", ephemeral=True)
+
+
+@bot.tree.command(name="aviso", description="Envia um aviso para o servidor")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def aviso(
+    interaction: discord.Interaction,
+    titulo: str,
+    mensagem: str,
+    imagem: str = None
+):
+
+    embed = discord.Embed(
+        title=f"📢 {titulo}",
+        description=mensagem,
+        color=discord.Color.gold()
+    )
+
+    embed.set_footer(
+        text=f"Aviso enviado por {interaction.user}"
+    )
+
+    # Ícone do servidor como miniatura
+    if interaction.guild.icon:
+        embed.set_thumbnail(
+            url=interaction.guild.icon.url
+        )
+
+    # Adiciona imagem apenas se for informada
+    if imagem:
+        embed.set_image(url=imagem)
+
+    await interaction.response.send_message(
+        "✅ Aviso enviado com sucesso!",
+        ephemeral=True
+    )
+
+    await interaction.channel.send(
+        "@here",
+        embed=embed
+    )
+@bot.tree.command(name="mute", description="Muta membro")
+@app_commands.checks.has_permissions(moderate_members=True)
+async def mute(interaction: discord.Interaction, membro: discord.Member, min: int):
+    await membro.timeout(discord.utils.utcnow() + timedelta(minutes=min))
+    await interaction.response.send_message(f"🔇 {membro.name} mutado.")
+
+@bot.tree.command(name="unmute", description="Desmuta")
+@app_commands.checks.has_permissions(moderate_members=True)
+async def unmute(interaction: discord.Interaction, membro: discord.Member):
+    await membro.timeout(None)
+    await interaction.response.send_message(f"🔊 {membro.name} desmutado.")
+
+@bot.tree.command(name="lock", description="Bloqueia o canal")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def lock(interaction: discord.Interaction):
+
+    overwrite = interaction.channel.overwrites_for(
+        interaction.guild.default_role
+    )
+
+    overwrite.send_messages = False
+
+    await interaction.channel.set_permissions(
+        interaction.guild.default_role,
+        overwrite=overwrite
+    )
+
+    await interaction.response.send_message(
+        "🔒 Canal bloqueado!"
+    )
+
+@bot.tree.command(name="unlock", description="Desbloqueia o canal")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def unlock(interaction: discord.Interaction):
+
+    overwrite = interaction.channel.overwrites_for(
+        interaction.guild.default_role
+    )
+
+    overwrite.send_messages = True
+
+    await interaction.channel.set_permissions(
+        interaction.guild.default_role,
+        overwrite=overwrite
+    )
+
+    await interaction.response.send_message(
+        "🔓 Canal desbloqueado!"
+    )
+    
+@bot.tree.command(name="ban", description="Banir")
+@app_commands.checks.has_permissions(ban_members=True)
+async def ban(interaction: discord.Interaction, membro: discord.Member):
+    await membro.ban(); await interaction.response.send_message(f"🔨 {membro.name} banido.")
+
+@bot.tree.command(name="ppt", description="Pedra, Papel e Tesoura contra o Vanguard")
+@app_commands.choices(escolha=[
+    app_commands.Choice(name="Pedra", value="pedra"),
+    app_commands.Choice(name="Papel", value="papel"),
+    app_commands.Choice(name="Tesoura", value="tesoura")
+])
+async def ppt(interaction: discord.Interaction, escolha: app_commands.Choice[str]):
+    jogador = escolha.value
+    bot_escolha = random.choice(["pedra", "papel", "tesoura"])
+
+    if jogador == bot_escolha:
+        resultado = "🤝 Empate!"
+        xp = 5
+    elif (
+        (jogador == "pedra" and bot_escolha == "tesoura") or
+        (jogador == "papel" and bot_escolha == "pedra") or
+        (jogador == "tesoura" and bot_escolha == "papel")
+    ):
+        resultado = "🏆 Você venceu!"
+        xp = 20
+    else:
+        resultado = "💀 Você perdeu!"
+        xp = 0
+
+    if xp > 0:
+        adicionar_xp(interaction.user.id, xp)
+
+    embed = discord.Embed(
+        title="✂️ Pedra, Papel e Tesoura",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Sua escolha", value=jogador.capitalize(), inline=False)
+    embed.add_field(name="Escolha do Vanguard", value=bot_escolha.capitalize(), inline=False)
+    embed.add_field(name="Resultado", value=f"{resultado}\n⭐ +{xp} XP", inline=False)
+
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="dueloppt", description="Desafie alguém para Pedra, Papel e Tesoura")
+async def dueloppt(interaction: discord.Interaction, usuario: discord.Member):
+
+    if usuario.bot:
+        await interaction.response.send_message(
+            "❌ Você não pode desafiar bots.",
+            ephemeral=True
+        )
+        return
+
+    if usuario.id == interaction.user.id:
+        await interaction.response.send_message(
+            "❌ Você não pode desafiar a si mesmo.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="⚔️ Duelo PPT",
+        description=(
+            f"{interaction.user.mention} desafiou {usuario.mention}\n\n"
+            "Escolham uma opção nos botões abaixo."
+        ),
+        color=discord.Color.red()
+    )
+
+    embed.add_field(name="Prêmio", value="🏆 30 XP", inline=False)
+
+    await interaction.response.send_message(
+        embed=embed,
+        view=PPTView(interaction.user.id, usuario.id)
+    )
+
+@bot.tree.command(name="xp", description="Mostra seu XP")
+async def xp(interaction: discord.Interaction):
+    xp_usuario = obter_xp(interaction.user.id)
+
+    await interaction.response.send_message(
+        f"⭐ Você possui **{xp_usuario} XP**"
+    )
+
+@bot.tree.command(name="level", description="Mostra seu nível")
+async def level(interaction: discord.Interaction):
+
+    xp_usuario = obter_xp(interaction.user.id)
+
+    nivel = xp_usuario // 100
+
+    await interaction.response.send_message(
+        f"🏆 Nível: **{nivel}**\n"
+        f"⭐ XP: **{xp_usuario}**"
+    )
+
+@bot.tree.command(name="rankxp", description="Ranking do servidor")
+async def rankxp(interaction: discord.Interaction):
+
+    resultado = (
+        supabase.table("usuarios")
+        .select("*")
+        .order("xp", desc=True)
+        .execute()
+    )
+
+    membros = {str(m.id): m for m in interaction.guild.members}
+
+    texto = ""
+    posicao = 1
+
+    for usuario in resultado.data:
+
+        if usuario["user_id"] in membros:
+
+            membro = membros[usuario["user_id"]]
+
+            texto += (
+                f"{posicao}. {membro.display_name} - "
+                f"{usuario['xp']} XP\n"
+            )
+
+            posicao += 1
+
+            if posicao > 10:
+                break
+
+    if texto == "":
+        texto = "Nenhum jogador encontrado."
+
+    embed = discord.Embed(
+        title="🏆 Ranking do Servidor",
+        description=texto,
+        color=discord.Color.gold()
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="globalxp", description="Ranking Global")
+async def globalxp(interaction: discord.Interaction):
+
+    resultado = (
+        supabase.table("usuarios")
+        .select("*")
+        .order("xp", desc=True)
+        .limit(10)
+        .execute()
+    )
+
+    texto = ""
+
+    for posicao, usuario in enumerate(resultado.data, start=1):
+
+        texto += (
+            f"{posicao}. "
+            f"{usuario['user_id']} - "
+            f"{usuario['xp']} XP\n"
+        )
+
+    if texto == "":
+        texto = "Nenhum jogador encontrado."
+
+    embed = discord.Embed(
+        title="🌎 Ranking Global",
+        description=texto,
+        color=discord.Color.blue()
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+# ======================================================
+# INICIAR BOT
+# ======================================================
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+if not TOKEN:
+    raise Exception("DISCORD_TOKEN não encontrado nas variáveis de ambiente.")
+
+bot.run(TOKEN)
