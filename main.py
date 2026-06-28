@@ -1,4 +1,5 @@
 import discord
+discord.VoiceClient.warn_nacl = False
 import os
 import random
 import io
@@ -30,8 +31,6 @@ Thread(target=run, daemon=True).start()
 # ======================================================
 # BOT
 # ======================================================
-
-discord.VoiceClient.warn_nacl = False
 
 intents = discord.Intents.default()
 intents.message_content = True
